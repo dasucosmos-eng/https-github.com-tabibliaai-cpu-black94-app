@@ -412,7 +412,7 @@ const S = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     flexWrap: 'nowrap',
-    marginTop: 0,
+    marginTop: 2,
   },
   namePress: {
     marginRight: 4,
@@ -454,20 +454,20 @@ const S = StyleSheet.create({
     borderRadius: 9999,
   },
 
-  /* ── Caption — tight against name, no dead gap ── */
+  /* ── Caption — 1px gap from name row ── */
   caption: {
     fontSize: 15,
     fontWeight: '400',
     color: C.text,
     lineHeight: 20,
-    marginTop: -2,
+    marginTop: 1,
     marginBottom: 0,
     letterSpacing: 0.1,
   },
 
-  /* ── Media — dynamic aspect ratio, tight against caption or name ── */
+  /* ── Media — dynamic aspect ratio, 1px gap from caption or name ── */
   mediaWrap: {
-    marginTop: -2,
+    marginTop: 1,
     marginBottom: 4,
   },
   mediaBorder: {
