@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, Image, TouchableOpacity, StyleSheet, ActivityIndicator, ScrollView, TextInput, Alert, KeyboardAvoidingView, Platform,  } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from '../theme/colors';
@@ -7,6 +7,7 @@ import { timeAgo } from '../utils/timeAgo';
 import { auth, firestore } from '../lib/firebase';
 import { tsToMillis, parseMediaUrls } from '../lib/api';
 import { User, Post } from '../lib/api';
+import { isShipRocketConfigured, getShipRocketClient } from '../lib/shiprocket';
 
 const SHIPPING_PARTNERS = [
   { id: 'standard', name: 'Standard Shipping', price: 99, days: '5-7 days' },
@@ -63,10 +64,19 @@ export default function CheckoutScreen({ route, navigation }: any) {
   const [selectedPartner, setSelectedPartner] = useState(SHIPPING_PARTNERS[0]);
   const [paymentMethod, setPaymentMethod] = useState<'cod' | 'prepaid'>('prepaid');
   const [placingOrder, setPlacingOrder] = useState(false);
+  const [shiprocketReady, setShiprocketReady] = useState(false);
 
   const subtotal = passedSubtotal || cartItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
   const shippingCost = selectedPartner.price;
   const total = subtotal + shippingCost;
+
+  // Check if the seller has ShipRocket configured
+  useEffect(() => {
+    const businessId = cartItems.length > 0 ? cartItems[0].productId?.split('_')[0] : '';
+    if (businessId) {
+      isShipRocketConfigured(businessId).then(setShiprocketReady).catch(() => setShiprocketReady(false));
+    }
+  }, []);
 
   const updateShippingField = (key: keyof ShippingForm, value: string) => {
     setShippingForm(prev => ({ ...prev, [key]: value }));
@@ -118,11 +128,67 @@ export default function CheckoutScreen({ route, navigation }: any) {
         updatedAt: firestore.FieldValue.serverTimestamp(),
       };
 
-      await firestore().collection('orders').add(orderData);
+      const orderRef = await firestore().collection('orders').add(orderData);
+      const orderId = orderRef.id;
+
+      // ── ShipRocket: Auto-create shipment if configured ──
+      if (shiprocketReady) {
+        try {
+          const businessId = cartItems[0]?.productId?.split('_')[0] || '';
+          if (businessId) {
+            const client = await getShipRocketClient(businessId);
+            const shipment = await client.createShipment({
+              order_id: orderId,
+              order_date: new Date().toISOString().split('T')[0],
+              pickup_location: 'primary',
+              channel_id: '',
+              comment: 'Black94 Order',
+              billing_customer_name: shippingForm.fullName,
+              billing_address: [shippingForm.addressLine1, shippingForm.addressLine2].filter(Boolean).join(', '),
+              billing_city: shippingForm.city,
+              billing_state: shippingForm.state,
+              billing_pincode: shippingForm.pincode,
+              billing_country: 'India',
+              billing_phone: shippingForm.phone,
+              shipping_customer_name: shippingForm.fullName,
+              shipping_address: [shippingForm.addressLine1, shippingForm.addressLine2].filter(Boolean).join(', '),
+              shipping_city: shippingForm.city,
+              shipping_state: shippingForm.state,
+              shipping_pincode: shippingForm.pincode,
+              shipping_country: 'India',
+              shipping_phone: shippingForm.phone,
+              order_items: cartItems.map(item => ({
+                name: item.name,
+                sku: item.productId,
+                units: item.quantity,
+                selling_price: item.price,
+              })),
+              payment_method: paymentMethod,
+              sub_total: subtotal,
+              length: 10,
+              breadth: 10,
+              height: 10,
+              weight: 0.5,
+            });
+
+            if (shipment?.awb_code) {
+              await firestore().collection('orders').doc(orderId).update({
+                trackingNumber: shipment.awb_code,
+                trackingPartner: shipment.courier_name || 'ShipRocket',
+                shiprocketShipmentId: shipment.shipment_id,
+                status: 'confirmed',
+              });
+              console.log(`[Checkout] ShipRocket shipment created: AWB=${shipment.awb_code}`);
+            }
+          }
+        } catch (srError: any) {
+          console.warn('[Checkout] ShipRocket shipment creation failed (order still placed):', srError?.message);
+        }
+      }
 
       Alert.alert(
-        'Order Placed! 🎉',
-        `Your order of ${formatINR(total)} has been placed successfully. You'll receive updates on your order status.`,
+        'Order Placed!',
+        `Your order of ${formatINR(total)} has been placed successfully.${shiprocketReady ? ' Shipping label will be generated automatically.' : ''}`,
         [
           {
             text: 'OK',

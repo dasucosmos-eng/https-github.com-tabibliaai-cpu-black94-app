@@ -1,309 +1,428 @@
-import React, { useEffect, useState, useCallback } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, ScrollView, RefreshControl,  } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  View,
+  Text,
+  ScrollView,
+  StyleSheet,
+  ActivityIndicator,
+  RefreshControl,
+  TouchableOpacity,
+} from 'react-native';
+import { firestore, auth } from '../lib/firebase';
 import { colors } from '../theme/colors';
-import { Avatar, VerifiedBadge } from '../components/Avatar';
-import { timeAgo } from '../utils/timeAgo';
-import { auth, firestore } from '../lib/firebase';
-import { tsToMillis } from '../lib/api';
-import { User } from '../lib/api';
+import { Ionicons } from '@expo/vector-icons';
 
-interface CampaignPerformance {
-  id: string;
-  name: string;
-  impressions: number;
-  clicks: number;
-  conversions: number;
-  spend: number;
-  revenue: number;
-  status: string;
-}
+/* ── Theme ──────────────────────────────────────────────────────────────────── */
 
-interface AggregateMetrics {
-  totalImpressions: number;
-  totalClicks: number;
-  ctr: number;
-  conversions: number;
-  roi: number;
-}
+const C = {
+  black: '#000',
+  surface: '#16181c',
+  border: '#374151',
+  text: '#e7e9ea',
+  textSecondary: '#a1a1aa',
+  success: '#22c55e',
+  warning: '#f59e0b',
+  danger: '#ef4444',
+  info: '#3b82f6',
+  purple: '#8b5cf6',
+  white: '#ffffff',
+  white20: 'rgba(255,255,255,0.2)',
+};
 
-const AI_SUGGESTIONS = [
-  {
-    icon: '🎯',
-    title: 'Improve CTR with Better Headlines',
-    description: 'Campaigns with headlines under 40 characters see 23% higher click-through rates.',
-  },
-  {
-    icon: '💰',
-    title: 'Optimize Your Budget Allocation',
-    description: 'Top 20% of your campaigns drive 80% of conversions. Consider reallocating budget to high-performers.',
-  },
-  {
-    icon: '📱',
-    title: 'Focus on Mobile Audiences',
-    description: '85% of ad impressions come from mobile devices. Ensure your creatives are mobile-optimized.',
-  },
-  {
-    icon: '⏰',
-    title: 'Schedule Ads During Peak Hours',
-    description: 'Your audience is most active between 7-10 PM. Schedule campaigns to maximize visibility.',
-  },
+const S = { xs: 4, sm: 8, md: 12, lg: 16, xl: 20, xxl: 24 };
+const F = { xs: 10, sm: 12, md: 14, lg: 15, xl: 18, xxl: 22 };
+const BR = { sm: 6, md: 10, lg: 16, xl: 24 };
+
+/* ── Types ──────────────────────────────────────────────────────────────────── */
+
+type Period = '7d' | '30d' | '90d';
+
+const PERIODS: { key: Period; label: string }[] = [
+  { key: '7d', label: '7D' },
+  { key: '30d', label: '30D' },
+  { key: '90d', label: '90D' },
 ];
 
-export default function PerformanceScreen({ navigation }: any) {
-  const currentUser = auth()?.currentUser;
-  const [campaigns, setCampaigns] = useState<CampaignPerformance[]>([]);
-  const [metrics, setMetrics] = useState<AggregateMetrics>({
-    totalImpressions: 0,
-    totalClicks: 0,
-    ctr: 0,
-    conversions: 0,
-    roi: 0,
-  });
+interface RawOrder {
+  id: string;
+  buyerId: string;
+  buyerName: string;
+  total: number;
+  status: string;
+  items: string;
+  createdAt: string;
+}
+
+interface RawProduct {
+  id: string;
+  name: string;
+  price: number;
+  soldCount: number;
+  revenue: number;
+}
+
+interface ChartPoint {
+  label: string;
+  value: number;
+}
+
+/* ── Helpers ────────────────────────────────────────────────────────────────── */
+
+function tsToISO(v: any): string {
+  if (v && typeof v === 'object' && 'seconds' in v) return new Date(v.seconds * 1000).toISOString();
+  return typeof v === 'string' ? v : new Date().toISOString();
+}
+
+function formatINR(n: number) {
+  return '\u20B9' + Math.round(n).toLocaleString('en-IN');
+}
+
+function periodMs(p: Period) {
+  return { '7d': 7, '30d': 30, '90d': 90 }[p]! * 86400000;
+}
+
+/* ── Component ─────────────────────────────────────────────────────────────── */
+
+const PerformanceScreen: React.FC = () => {
+  const uid = auth().currentUser?.uid ?? '';
+  const [period, setPeriod] = useState<Period>('30d');
+  const [orders, setOrders] = useState<RawOrder[]>([]);
+  const [products, setProducts] = useState<RawProduct[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [canRefresh, setCanRefresh] = useState(true);
+
+  /* ── Data Loading ─────────────────────────────────────────────────────── */
 
   const load = useCallback(async () => {
-    if (!currentUser) { setLoading(false); return; }
     try {
-      const snap = await firestore()
-        .collection('adCampaigns')
-        .where('businessId', '==', currentUser.uid)
-        .limit(100)
-        .get();
+      const [ordersSnap, productsSnap] = await Promise.all([
+        firestore().collection('orders').where('businessId', '==', uid).orderBy('createdAt', 'desc').limit(500).get(),
+        firestore().collection('products').where('businessId', '==', uid).where('isActive', '==', true).get(),
+      ]);
 
-      const list: CampaignPerformance[] = snap.docs.map(doc => {
-        const data = doc.data();
-        return {
-          id: doc.id,
-          name: data.name || 'Untitled',
-          impressions: data.impressions || 0,
-          clicks: data.clicks || 0,
-          conversions: data.conversions || 0,
-          spend: data.budget || data.dailyBudget || 0,
-          revenue: data.revenue || 0,
-          status: data.status || 'paused',
-        };
+      const ords: RawOrder[] = ordersSnap.docs.map((doc: any) => {
+        const d = doc.data();
+        return { id: doc.id, buyerId: d.buyerId ?? '', buyerName: d.buyerName ?? 'Customer', total: d.total ?? 0, status: d.status ?? 'pending', items: typeof d.items === 'string' ? d.items : JSON.stringify(d.items ?? []), createdAt: tsToISO(d.createdAt) };
       });
-      setCampaigns(list);
+      setOrders(ords);
 
-      const totalImpressions = list.reduce((s, c) => s + c.impressions, 0);
-      const totalClicks = list.reduce((s, c) => s + c.clicks, 0);
-      const totalConversions = list.reduce((s, c) => s + c.conversions, 0);
-      const totalSpend = list.reduce((s, c) => s + c.spend, 0);
-      const totalRevenue = list.reduce((s, c) => s + c.revenue, 0);
-
-      setMetrics({
-        totalImpressions,
-        totalClicks,
-        ctr: totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0,
-        conversions: totalConversions,
-        roi: totalSpend > 0 ? ((totalRevenue - totalSpend) / totalSpend) * 100 : 0,
+      const prds: RawProduct[] = productsSnap.docs.map((doc: any) => {
+        const d = doc.data();
+        return { id: doc.id, name: d.name ?? 'Product', price: d.price ?? 0, soldCount: d.soldCount ?? 0, revenue: (d.price ?? 0) * (d.soldCount ?? 0) };
       });
-    } catch (e) {
-      console.error('[Performance] Failed:', e);
-    } finally {
+      setProducts(prds);
+    } catch { /* silent */ } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [currentUser]);
+  }, [uid]);
 
-  const handleScroll = useCallback((event: any) => {
-    const offset = event.nativeEvent.contentOffset.y;
-    setCanRefresh(offset <= 0);
-  }, []);
+  useEffect(() => { load(); }, [load]);
 
-  useEffect(() => { load(); }, []);
+  const handlePeriod = (p: Period) => { setPeriod(p); setRefreshing(true); };
+  const handleRefresh = () => { setRefreshing(true); load(); };
 
-  const maxImpressions = Math.max(...campaigns.map(c => c.impressions), 1);
+  /* ── Derived Metrics ──────────────────────────────────────────────────── */
+
+  const { filteredOrders, kpis, chartData, topProducts, recentActivity } = useMemo(() => {
+    const cutoff = Date.now() - periodMs(period);
+    const fO = orders.filter(o => new Date(o.createdAt).getTime() >= cutoff);
+
+    const completed = fO.filter(o => o.status === 'delivered');
+    const totalRevenue = completed.reduce((s, o) => s + o.total, 0);
+    const ordersCompleted = completed.length;
+    const customerSet = new Set(fO.map(o => o.buyerId).filter(Boolean));
+    const activeCustomers = customerSet.size;
+    const conversionRate = fO.length > 0 ? (ordersCompleted / fO.length) * 100 : 0;
+
+    /* Chart data */
+    const chartPts: ChartPoint[] = [];
+    const buckets = period === '7d' ? 7 : 4;
+    const bucketMs = periodMs(period) / buckets;
+    const now = new Date();
+
+    for (let i = buckets - 1; i >= 0; i--) {
+      const end = new Date(now.getTime() - i * bucketMs);
+      const start = new Date(end.getTime() - bucketMs);
+      const label = period === '7d'
+        ? end.toLocaleDateString('en-IN', { weekday: 'short' })
+        : end.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+      const rev = completed
+        .filter(o => { const t = new Date(o.createdAt).getTime(); return t >= start.getTime() && t < end.getTime(); })
+        .reduce((s, o) => s + o.total, 0);
+      chartPts.push({ label, value: rev });
+    }
+
+    /* Top products */
+    const productRevenue: Record<string, { name: string; revenue: number; sold: number }> = {};
+    for (const o of completed) {
+      try {
+        const items = JSON.parse(o.items);
+        if (Array.isArray(items)) {
+          for (const it of items) {
+            const key = it.productId || it.productName || it.name || 'Product';
+            if (!productRevenue[key]) productRevenue[key] = { name: it.productName || it.name || 'Product', revenue: 0, sold: 0 };
+            productRevenue[key].revenue += (it.price || 0) * (it.quantity || 1);
+            productRevenue[key].sold += it.quantity || 1;
+          }
+        }
+      } catch { /* skip */ }
+    }
+    const top = Object.values(productRevenue).sort((a, b) => b.revenue - a.revenue).slice(0, 5);
+
+    /* Recent activity */
+    const recent = fO.slice(0, 5);
+
+    return {
+      filteredOrders: fO,
+      kpis: { totalRevenue, ordersCompleted, conversionRate, activeCustomers },
+      chartData: chartPts,
+      topProducts: top,
+      recentActivity: recent,
+    };
+  }, [orders, period]);
+
+  const maxChart = Math.max(...chartData.map(p => p.value), 1);
+
+  /* ── Status color ─────────────────────────────────────────────────────── */
+
+  const sColor = (s: string) => {
+    const map: Record<string, string> = { pending: C.warning, confirmed: C.info, processing: C.white, shipped: C.purple, delivered: C.success, cancelled: C.danger };
+    return map[s] ?? C.textSecondary;
+  };
+
+  /* ── Render ───────────────────────────────────────────────────────────── */
 
   if (loading) {
-    return (
-      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
-        <ActivityIndicator color={colors.accent} size="large" />
-      </View>
-    );
+    return <View style={styles.centerLoader}><ActivityIndicator color={C.info} size="large" /></View>;
   }
 
   return (
-    <View style={styles.container}>
-      <SafeAreaView edges={['top']}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-            <Text style={styles.backIcon}>←</Text>
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Performance</Text>
-          <View style={{ width: 32 }} />
+    <View style={styles.screen}>
+      {/* Header */}
+      <View style={styles.header}>
+        <Ionicons name="speedometer-outline" size={22} color={C.info} />
+        <Text style={styles.headerTitle}>Performance</Text>
+      </View>
+
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll} refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={C.info} />
+      }>
+
+        {/* Period Selector */}
+        <View style={styles.periodBar}>
+          <Ionicons name="calendar-outline" size={16} color={C.textSecondary} />
+          {PERIODS.map(p => (
+            <TouchableOpacity key={p.key} style={[styles.pill, period === p.key && styles.pillActive]} onPress={() => handlePeriod(p.key)}>
+              <Text style={[styles.pillText, period === p.key && styles.pillTextActive]}>{p.label}</Text>
+            </TouchableOpacity>
+          ))}
         </View>
-      </SafeAreaView>
 
-      <ScrollView
-        style={styles.scroll}
-        onScroll={handleScroll}
-        scrollEventThrottle={16}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing && canRefresh}
-            onRefresh={() => { if (canRefresh) { setRefreshing(true); load(); } }}
-            tintColor={colors.accent}
-            enabled={canRefresh}
-          />
-        }
-        showsVerticalScrollIndicator={false}
-      >
-        {campaigns.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyIcon}>📊</Text>
-            <Text style={styles.emptyTitle}>No performance data</Text>
-            <Text style={styles.emptyText}>
-              Launch ad campaigns to see performance analytics here.
-            </Text>
+        {/* KPI Cards */}
+        <View style={styles.section}>
+          <View style={styles.kpiRow}>
+            {[
+              { icon: 'wallet-outline', label: 'Total Revenue', value: formatINR(kpis.totalRevenue), color: C.success },
+              { icon: 'checkmark-done-outline', label: 'Orders Completed', value: String(kpis.ordersCompleted), color: C.info },
+            ].map((k, i) => (
+              <View key={i} style={styles.kpiCard}>
+                <View style={[styles.kpiIconWrap, { backgroundColor: k.color + '15' }]}>
+                  <Ionicons name={k.icon as any} size={20} color={k.color} />
+                </View>
+                <Text style={styles.kpiValue}>{k.value}</Text>
+                <Text style={styles.kpiLabel}>{k.label}</Text>
+              </View>
+            ))}
           </View>
-        ) : (
-          <>
-            {/* Aggregate Metrics */}
-            <View style={styles.metricsGrid}>
-              <View style={styles.metricCard}>
-                <Text style={styles.metricLabel}>Total Impressions</Text>
-                <Text style={styles.metricValue}>{metrics.totalImpressions.toLocaleString()}</Text>
+          <View style={styles.kpiRow}>
+            {[
+              { icon: 'trending-up-outline', label: 'Conversion Rate', value: kpis.conversionRate.toFixed(1) + '%', color: C.warning },
+              { icon: 'people-outline', label: 'Active Customers', value: String(kpis.activeCustomers), color: C.purple },
+            ].map((k, i) => (
+              <View key={i} style={styles.kpiCard}>
+                <View style={[styles.kpiIconWrap, { backgroundColor: k.color + '15' }]}>
+                  <Ionicons name={k.icon as any} size={20} color={k.color} />
+                </View>
+                <Text style={styles.kpiValue}>{k.value}</Text>
+                <Text style={styles.kpiLabel}>{k.label}</Text>
               </View>
-              <View style={styles.metricCard}>
-                <Text style={styles.metricLabel}>Total Clicks</Text>
-                <Text style={styles.metricValue}>{metrics.totalClicks.toLocaleString()}</Text>
-              </View>
-              <View style={styles.metricCard}>
-                <Text style={styles.metricLabel}>CTR</Text>
-                <Text style={styles.metricValue}>{metrics.ctr.toFixed(1)}%</Text>
-              </View>
-              <View style={styles.metricCard}>
-                <Text style={styles.metricLabel}>Conversions</Text>
-                <Text style={styles.metricValue}>{metrics.conversions}</Text>
-              </View>
-              <View style={[styles.metricCard, styles.metricCardWide]}>
-                <Text style={styles.metricLabel}>ROI</Text>
-                <Text style={[
-                  styles.metricValue,
-                  { color: metrics.roi >= 0 ? colors.accentGreen : colors.accentRed },
-                ]}>
-                  {metrics.roi >= 0 ? '+' : ''}{metrics.roi.toFixed(1)}%
-                </Text>
-              </View>
-            </View>
+            ))}
+          </View>
+        </View>
 
-            {/* Campaign Performance Bars */}
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Campaign Performance</Text>
-              {campaigns.map(campaign => {
-                const barWidth = (campaign.impressions / maxImpressions) * 100;
-                const ctr = campaign.impressions > 0
-                  ? ((campaign.clicks / campaign.impressions) * 100).toFixed(1)
-                  : '0.0';
-                return (
-                  <View key={campaign.id} style={styles.campaignBar}>
-                    <View style={styles.campaignBarHeader}>
-                      <Text style={styles.campaignBarName} numberOfLines={1}>{campaign.name}</Text>
-                      <Text style={styles.campaignBarCTR}>CTR: {ctr}%</Text>
-                    </View>
-                    <View style={styles.barTrack}>
-                      <View style={[styles.barFill, { width: `${barWidth}%` }]} />
-                    </View>
-                    <View style={styles.campaignBarStats}>
-                      <Text style={styles.barStat}>{campaign.impressions.toLocaleString()} impressions</Text>
-                      <Text style={styles.barStat}>{campaign.clicks} clicks</Text>
-                      <Text style={styles.barStat}>{campaign.conversions} conv.</Text>
-                    </View>
-                  </View>
-                );
-              })}
-            </View>
-
-            {/* AI Suggestions */}
-            <View style={styles.section}>
-              <View style={styles.aiHeader}>
-                <Text style={styles.sectionTitle}>AI Suggestions</Text>
-                <Text style={styles.aiLabel}>✨ Powered by AI</Text>
+        {/* Revenue Chart */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Revenue Trend</Text>
+          <View style={styles.chartCard}>
+            {chartData.length > 0 ? (
+              <View style={styles.chartContainer}>
+                <View style={styles.chartYAxis}>
+                  <Text style={styles.chartYLabel}>{formatINR(maxChart)}</Text>
+                  <View style={{ flex: 1 }} />
+                  <Text style={styles.chartYLabel}>{formatINR(maxChart / 2)}</Text>
+                  <View style={{ flex: 1 }} />
+                  <Text style={styles.chartYLabel}>0</Text>
+                </View>
+                <View style={styles.chartBarsWrap}>
+                  <View style={styles.gridLine} />
+                  <View style={[styles.gridLine, { bottom: '50%' }]} />
+                  {chartData.map((pt, i) => {
+                    const h = maxChart > 0 ? (pt.value / maxChart) * 100 : 0;
+                    const isMax = pt.value === Math.max(...chartData.map(p => p.value));
+                    return (
+                      <View key={i} style={styles.barCol}>
+                        {pt.value > 0 && <Text style={styles.barVal} numberOfLines={1}>{formatINR(pt.value)}</Text>}
+                        <View style={styles.barTrack}>
+                          <View style={[styles.barFill, { height: `${Math.max(h, 2)}%`, backgroundColor: isMax ? C.info : 'rgba(59,130,246,0.45)' }]} />
+                        </View>
+                        <Text style={styles.barLabel} numberOfLines={1}>{pt.label}</Text>
+                      </View>
+                    );
+                  })}
+                </View>
               </View>
-              {AI_SUGGESTIONS.map((tip, index) => (
-                <View key={index} style={styles.tipCard}>
-                  <Text style={styles.tipIcon}>{tip.icon}</Text>
-                  <View style={styles.tipContent}>
-                    <Text style={styles.tipTitle}>{tip.title}</Text>
-                    <Text style={styles.tipDescription}>{tip.description}</Text>
+            ) : (
+              <View style={styles.chartEmpty}>
+                <Ionicons name="bar-chart-outline" size={32} color={C.white20} />
+                <Text style={styles.chartEmptyText}>No revenue data for this period</Text>
+              </View>
+            )}
+          </View>
+        </View>
+
+        {/* Top Products */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Top Products by Revenue</Text>
+          {topProducts.length > 0 ? topProducts.map((p, i) => {
+            const maxRev = topProducts[0]?.revenue || 1;
+            const pct = (p.revenue / maxRev) * 100;
+            return (
+              <View key={i} style={styles.productRow}>
+                <View style={[styles.productRank, i === 0 && styles.productRankFirst]}>
+                  <Text style={[styles.productRankText, i === 0 && styles.productRankTextFirst]}>{i + 1}</Text>
+                </View>
+                <View style={styles.productInfo}>
+                  <Text style={styles.productName} numberOfLines={1}>{p.name}</Text>
+                  <View style={styles.productBarRow}>
+                    <View style={styles.productBarTrack}>
+                      <View style={[styles.productBarFill, { width: `${Math.max(pct, 4)}%` }]} />
+                    </View>
+                    <Text style={styles.productSold}>{p.sold} sold</Text>
                   </View>
                 </View>
-              ))}
+                <Text style={styles.productRevenue}>{formatINR(p.revenue)}</Text>
+              </View>
+            );
+          }) : (
+            <View style={styles.emptyCard}>
+              <Text style={styles.emptyCardText}>No product data for this period</Text>
             </View>
-          </>
-        )}
+          )}
+        </View>
+
+        {/* Recent Activity */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Recent Activity</Text>
+          {recentActivity.length > 0 ? recentActivity.map((o, i) => {
+            const sc = sColor(o.status);
+            return (
+              <View key={i} style={styles.activityRow}>
+                <View style={[styles.activityIcon, { backgroundColor: sc + '15' }]}>
+                  <Ionicons name="receipt-outline" size={16} color={sc} />
+                </View>
+                <View style={styles.activityContent}>
+                  <Text style={styles.activityName} numberOfLines={1}>{o.buyerName}</Text>
+                  <Text style={styles.activityMeta}>#{o.id.slice(-8)} &middot; {formatINR(o.total)}</Text>
+                </View>
+                <View style={[styles.activityBadge, { backgroundColor: sc + '20' }]}>
+                  <Text style={[styles.activityBadgeText, { color: sc }]}>
+                    {o.status.charAt(0).toUpperCase() + o.status.slice(1)}
+                  </Text>
+                </View>
+              </View>
+            );
+          }) : (
+            <View style={styles.emptyCard}>
+              <Text style={styles.emptyCardText}>No recent activity</Text>
+            </View>
+          )}
+        </View>
 
         <View style={{ height: 40 }} />
       </ScrollView>
     </View>
   );
-}
+};
+
+/* ── Styles ────────────────────────────────────────────────────────────────── */
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.bg },
-  header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 16, paddingTop: 8, paddingBottom: 12,
-    borderBottomWidth: 0.5, borderBottomColor: colors.border,
-  },
-  backBtn: { padding: 4 },
-  backIcon: { color: colors.text, fontSize: 24 },
-  headerTitle: { color: colors.text, fontSize: 18, fontWeight: '700' },
-  scroll: { flex: 1 },
-  metricsGrid: {
-    flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 16,
-    marginTop: 16, gap: 10,
-  },
-  metricCard: {
-    width: '48%', backgroundColor: colors.surface, borderRadius: 14,
-    borderWidth: 1, borderColor: colors.border,
-    padding: 16,
-  },
-  metricCardWide: { width: '48%' },
-  metricLabel: { color: colors.textSecondary, fontSize: 12, fontWeight: '500' },
-  metricValue: { color: colors.text, fontSize: 22, fontWeight: '800', marginTop: 6 },
-  section: { paddingHorizontal: 16, marginTop: 28 },
-  sectionTitle: { color: colors.text, fontSize: 18, fontWeight: '700', marginBottom: 14 },
-  aiHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  aiLabel: { color: colors.accentGold, fontSize: 12, fontWeight: '600' },
-  campaignBar: {
-    backgroundColor: colors.surface, borderRadius: 12,
-    borderWidth: 1, borderColor: colors.border,
-    padding: 14, marginBottom: 10,
-  },
-  campaignBarHeader: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    marginBottom: 8,
-  },
-  campaignBarName: { color: colors.text, fontSize: 14, fontWeight: '600', flex: 1, marginRight: 10 },
-  campaignBarCTR: { color: colors.accent, fontSize: 13, fontWeight: '700' },
-  barTrack: {
-    height: 6, borderRadius: 3, backgroundColor: colors.bg,
-    overflow: 'hidden',
-  },
-  barFill: {
-    height: '100%', borderRadius: 3,
-    backgroundColor: colors.accent,
-  },
-  campaignBarStats: {
-    flexDirection: 'row', gap: 14, marginTop: 8,
-  },
-  barStat: { color: colors.textSecondary, fontSize: 12 },
-  tipCard: {
-    flexDirection: 'row', gap: 12, backgroundColor: colors.surface,
-    borderRadius: 14, borderWidth: 1, borderColor: colors.border,
-    padding: 14, marginBottom: 10,
-  },
-  tipIcon: { fontSize: 24 },
-  tipContent: { flex: 1 },
-  tipTitle: { color: colors.text, fontSize: 14, fontWeight: '700', marginBottom: 4 },
-  tipDescription: { color: colors.textSecondary, fontSize: 13, lineHeight: 18 },
-  emptyState: { alignItems: 'center', paddingTop: 100 },
-  emptyIcon: { fontSize: 48, marginBottom: 16 },
-  emptyTitle: { color: colors.text, fontSize: 18, fontWeight: '700', marginBottom: 8 },
-  emptyText: { color: colors.textSecondary, fontSize: 14, textAlign: 'center', paddingHorizontal: 40 },
+  screen: { flex: 1, backgroundColor: C.black },
+  centerLoader: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: C.black },
+  header: { flexDirection: 'row', alignItems: 'center', gap: S.md, paddingHorizontal: S.lg, paddingVertical: S.md, borderBottomWidth: 1, borderBottomColor: C.border },
+  headerTitle: { color: C.text, fontSize: F.xl, fontWeight: '700' },
+  scroll: { paddingBottom: 40 },
+
+  /* Period Selector */
+  periodBar: { flexDirection: 'row', alignItems: 'center', gap: S.sm, paddingHorizontal: S.lg, paddingVertical: S.md, borderBottomWidth: 1, borderBottomColor: C.border },
+  pill: { paddingHorizontal: 14, paddingVertical: 5, borderRadius: BR.lg, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border },
+  pillActive: { backgroundColor: 'rgba(59,130,246,0.2)', borderColor: C.info },
+  pillText: { color: C.textSecondary, fontSize: F.sm, fontWeight: '600' },
+  pillTextActive: { color: C.info },
+
+  /* Sections */
+  section: { padding: S.lg },
+  sectionTitle: { color: C.text, fontSize: F.lg, fontWeight: '600', marginBottom: S.md },
+
+  /* KPI Cards */
+  kpiRow: { flexDirection: 'row', gap: S.sm },
+  kpiCard: { flex: 1, backgroundColor: C.surface, borderRadius: BR.md, borderWidth: 1, borderColor: C.border, padding: S.md, gap: S.sm },
+  kpiIconWrap: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
+  kpiValue: { color: C.white, fontSize: F.xl, fontWeight: '800' },
+  kpiLabel: { color: C.textSecondary, fontSize: F.xs, marginTop: 2 },
+
+  /* Chart */
+  chartCard: { backgroundColor: C.surface, borderRadius: BR.md, borderWidth: 1, borderColor: C.border, padding: S.md },
+  chartContainer: { flexDirection: 'row', height: 180 },
+  chartYAxis: { width: 60, justifyContent: 'space-between', paddingVertical: 4 },
+  chartYLabel: { color: C.textSecondary, fontSize: 9, textAlign: 'right' },
+  chartBarsWrap: { flex: 1, position: 'relative', justifyContent: 'flex-end', paddingLeft: S.sm },
+  gridLine: { position: 'absolute', left: 0, right: 0, height: 1, backgroundColor: C.border, bottom: 0 },
+  barCol: { flex: 1, alignItems: 'center', justifyContent: 'flex-end', gap: 2 },
+  barVal: { color: C.textSecondary, fontSize: 8, marginBottom: 2 },
+  barTrack: { width: '60%', height: 120, backgroundColor: C.black, borderRadius: 4, justifyContent: 'flex-end', overflow: 'hidden' },
+  barFill: { width: '100%', borderRadius: 4 },
+  barLabel: { color: C.textSecondary, fontSize: 9, marginTop: 4 },
+  chartEmpty: { alignItems: 'center', justifyContent: 'center', height: 160, gap: S.sm },
+  chartEmptyText: { color: C.textSecondary, fontSize: F.sm },
+
+  /* Top Products */
+  productRow: { flexDirection: 'row', alignItems: 'center', gap: S.md, paddingVertical: S.sm },
+  productRank: { width: 28, height: 28, borderRadius: 14, backgroundColor: C.border, alignItems: 'center', justifyContent: 'center' },
+  productRankFirst: { backgroundColor: C.warning, },
+  productRankText: { color: C.white, fontSize: F.sm, fontWeight: '700' },
+  productRankTextFirst: { color: C.black },
+  productInfo: { flex: 1, gap: 4 },
+  productName: { color: C.text, fontSize: F.sm, fontWeight: '500' },
+  productBarRow: { flexDirection: 'row', alignItems: 'center', gap: S.sm },
+  productBarTrack: { flex: 1, height: 6, backgroundColor: C.border, borderRadius: 3, overflow: 'hidden' },
+  productBarFill: { height: '100%', backgroundColor: C.info, borderRadius: 3 },
+  productSold: { color: C.textSecondary, fontSize: F.xs, width: 48, textAlign: 'right' },
+  productRevenue: { color: C.text, fontSize: F.sm, fontWeight: '700', width: 72, textAlign: 'right' },
+
+  /* Activity */
+  activityRow: { flexDirection: 'row', alignItems: 'center', gap: S.md, paddingVertical: S.sm },
+  activityIcon: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
+  activityContent: { flex: 1 },
+  activityName: { color: C.text, fontSize: F.sm, fontWeight: '600' },
+  activityMeta: { color: C.textSecondary, fontSize: F.xs, marginTop: 2 },
+  activityBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: BR.sm },
+  activityBadgeText: { fontSize: F.xs, fontWeight: '600' },
+
+  /* Empty */
+  emptyCard: { backgroundColor: C.surface, borderRadius: BR.md, borderWidth: 1, borderColor: C.border, padding: S.xxl, alignItems: 'center' },
+  emptyCardText: { color: C.textSecondary, fontSize: F.sm },
 });
+
+export default PerformanceScreen;
