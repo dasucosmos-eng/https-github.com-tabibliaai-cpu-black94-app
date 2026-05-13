@@ -230,7 +230,7 @@ export default function OrderManagementScreen() {
       ];
       const seen = new Set<number>();
       setCouriers(allCouriers.filter((c) => { if (seen.has(c.id)) return false; seen.add(c.id); return c.active; }));
-      if (wh.length > 0) setSelectedWarehouse(String(wh[0].pickup_location || wh[0].name));
+      if (wh.length > 0) setSelectedWarehouse(String((wh[0] as any).pickup_location || (wh[0] as any).name));
     } catch (e: any) {
       Alert.alert('Error', 'Could not load ShipRocket data. ' + (e?.message || ''));
     }
@@ -266,11 +266,11 @@ export default function OrderManagementScreen() {
         shipping_pincode: addr.pincode || addr.postal_code || addr.zip || '',
         shipping_phone: addr.phone || '',
         shipping_email: selectedOrder.buyerEmail || '',
-        order_items: items.map((item) => ({
-          name: item.productName || item.name || 'Product',
-          sku: item.sku || item.productId || 'SKU',
-          units: item.quantity || 1,
-          selling_price: item.price || 0,
+        order_items: items.map((item: any) => ({
+          name: (item as any).productName || (item as any).name || 'Product',
+          sku: (item as any).sku || (item as any).productId || 'SKU',
+          units: (item as any).quantity || 1,
+          selling_price: (item as any).price || 0,
         })),
         payment_method: 'prepaid',
         shipping_charges: selectedOrder.shipping || 0,
@@ -499,7 +499,7 @@ export default function OrderManagementScreen() {
                   {/* Items */}
                   <View style={styles.detailSection}>
                     <Text style={styles.detailSectionTitle}>Items</Text>
-                    {parseOrderItems(selectedOrder.items).map((item, idx) => (
+                    {parseOrderItems(selectedOrder.items).map((item: any, idx: number) => (
                       <View key={idx} style={styles.itemRow}>
                         <Text style={styles.itemName}>{item.productName || item.name || 'Item'}</Text>
                         <Text style={styles.itemQty}>x{item.quantity}</Text>
@@ -706,6 +706,7 @@ const styles = StyleSheet.create({
   filterChipText: { fontSize: 13, fontWeight: '500', color: colors.textSecondary },
   filterChipTextActive: { color: colors.bg, fontWeight: '600' },
   filterCount: { minWidth: 18, height: 18, borderRadius: 9, paddingHorizontal: 5, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.08)' },
+  filterCountInactive: { backgroundColor: 'rgba(255,255,255,0.08)' },
   filterCountActive: { backgroundColor: colors.bg },
   filterCountText: { fontSize: 10, fontWeight: '700', color: colors.textMuted },
   filterCountTextActive: { color: colors.white },

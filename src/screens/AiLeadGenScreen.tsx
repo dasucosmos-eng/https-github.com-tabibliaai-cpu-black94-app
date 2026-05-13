@@ -39,10 +39,10 @@ import {
 const SOURCE_CONFIG: Record<string, { color: string; icon: string; label: string }> = {
   chat: { color: colors.accent, icon: 'chatbubbles-outline', label: 'Chat' },
   comment: { color: colors.accentGold, icon: 'chatbubble-outline', label: 'Comments' },
-  store_visit: { color: colors.accentGreen, icon: 'storefront-outline', label: 'Store Visits' },
+  store_visit: { color: colors.accentGreen, icon: 'storefront', label: 'Store Visits' },
   post_engagement: { color: colors.verified, icon: 'heart-outline', label: 'Post Engagement' },
   affiliate: { color: colors.like, icon: 'people-outline', label: 'Affiliates' },
-  manual: { color: colors.textMuted, icon: 'hand-left-outline', label: 'Manual' },
+  manual: { color: colors.textMuted, icon: 'hand-left', label: 'Manual' },
   import: { color: colors.textMuted, icon: 'download-outline', label: 'Imported' },
   referral: { color: colors.primary, icon: 'share-social-outline', label: 'Referrals' },
 };
@@ -272,7 +272,7 @@ export default function AiLeadGenScreen() {
               return (
                 <View key={key} style={styles.sourceCard}>
                   <View style={[styles.sourceIcon, { backgroundColor: config.color + '15' }]}>
-                    <Ionicons name={config.icon} size={20} color={config.color} />
+                    <Ionicons name={config.icon as any} size={20} color={config.color} />
                   </View>
                   <Text style={styles.sourceName}>{config.label}</Text>
                   <Text style={[styles.sourceCount, { color: config.color }]}>{count}</Text>

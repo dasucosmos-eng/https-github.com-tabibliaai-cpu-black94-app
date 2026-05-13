@@ -34,6 +34,7 @@ const C = {
   blue: '#3b82f6',
   white: colors.white,
   gold: '#ffd700',
+  black: '#000000',
 };
 
 const S = { xs: 4, sm: 8, md: 12, lg: 16, xl: 20, xxl: 24, xxxl: 32 };

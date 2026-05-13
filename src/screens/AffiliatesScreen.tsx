@@ -370,7 +370,7 @@ const AffiliatesScreen: React.FC<Props> = () => {
     <View style={styles.screen}>
       {/* ── Header ── */}
       <View style={styles.header}>
-        <Ionicons name="handshake-outline" size={22} color={C.gold} />
+        <Ionicons name="people-outline" size={22} color={C.gold} />
         <Text style={styles.headerTitle}>Affiliates</Text>
         <TouchableOpacity style={styles.addBtn} onPress={handleGenerateReferralCode}>
           <Ionicons name="link-outline" size={18} color={C.bg} />

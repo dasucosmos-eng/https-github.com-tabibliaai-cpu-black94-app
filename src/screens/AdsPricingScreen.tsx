@@ -196,7 +196,7 @@ export default function AdsPricingScreen({ navigation }: any) {
                   onPress={() => { setSelectedPlacement(tier.placement); setEstimate(null); }}
                   activeOpacity={0.7}
                 >
-                  <Ionicons name={PLACEMENT_ICONS[tier.placement] || 'grid-outline'} size={18} color={isSelected ? PLACEMENT_COLORS[tier.placement] : colors.textMuted} />
+                  <Ionicons name={(PLACEMENT_ICONS[tier.placement] || 'grid') as any} size={18} color={isSelected ? PLACEMENT_COLORS[tier.placement] : colors.textMuted} />
                   <Text style={[styles.placementChipText, isSelected && { color: PLACEMENT_COLORS[tier.placement] }]}>{PLACEMENT_LABELS[tier.placement]}</Text>
                 </TouchableOpacity>
               );
@@ -326,7 +326,7 @@ export default function AdsPricingScreen({ navigation }: any) {
               Override default pricing tiers with your own custom CPC/CPM ranges per placement. Requires a Premium subscription.
             </Text>
             <TouchableOpacity style={styles.premiumBtn} activeOpacity={0.7}>
-              <Ionicons name="crown" size={16} color={colors.accentGold} />
+              <Ionicons name="star" size={16} color={colors.accentGold} />
               <Text style={styles.premiumBtnText}>Upgrade to Premium</Text>
             </TouchableOpacity>
           </View>
@@ -335,7 +335,7 @@ export default function AdsPricingScreen({ navigation }: any) {
         {/* ═══ Section 5: Tips ═══ */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
-            <Ionicons name="lightbulb-outline" size={20} color={colors.accentGold} />
+            <Ionicons name="bulb-outline" size={20} color={colors.accentGold} />
             <Text style={styles.sectionTitle}>Optimization Tips</Text>
           </View>
           {TIPS.map((tip, idx) => (

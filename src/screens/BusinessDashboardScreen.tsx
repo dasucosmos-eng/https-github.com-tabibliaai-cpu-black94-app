@@ -54,19 +54,19 @@ function formatINR(amount: number): string {
 
 const QUICK_ACTIONS = [
   { label: 'CRM Leads', icon: 'people-outline' as const, screen: 'CrmLeads', color: C.info },
-  { label: 'CRM Deals', icon: 'briefcase-outline' as const, screen: 'CrmDeals', color: C.purple },
+  { label: 'CRM Deals', icon: 'briefcase' as const, screen: 'CrmDeals', color: C.purple },
   { label: 'CRM Analytics', icon: 'stats-chart' as const, screen: 'CrmAnalytics', color: C.blue },
-  { label: 'Orders', icon: 'receipt-outline' as const, screen: 'CrmOrders', color: C.warning },
-  { label: 'Ads Manager', icon: 'megaphone-outline' as const, screen: 'AdsManager', color: C.danger },
-  { label: 'Salary', icon: 'cash-outline' as const, screen: 'Salary', color: C.gold },
-  { label: 'Affiliates', icon: 'handshake-outline' as const, screen: 'Affiliates', color: C.gold },
+  { label: 'Orders', icon: 'receipt' as const, screen: 'CrmOrders', color: C.warning },
+  { label: 'Ads Manager', icon: 'megaphone' as const, screen: 'AdsManager', color: C.danger },
+  { label: 'Salary', icon: 'cash' as const, screen: 'Salary', color: C.gold },
+  { label: 'Affiliates', icon: 'people' as const, screen: 'Affiliates', color: C.gold },
   { label: 'Performance', icon: 'speedometer-outline' as const, screen: 'Performance', color: C.success },
   { label: 'My Store', icon: 'storefront-outline' as const, screen: 'MyStore', color: C.accent },
-  { label: 'Store Dashboard', icon: 'grid-outline' as const, screen: 'StoreDashboard', color: C.info },
-  { label: 'ShipRocket', icon: 'rocket-outline' as const, screen: 'ShipRocketSettings', color: C.blue },
+  { label: 'Store Dashboard', icon: 'grid' as const, screen: 'StoreDashboard', color: C.info },
+  { label: 'ShipRocket', icon: 'rocket' as const, screen: 'ShipRocketSettings', color: C.blue },
   { label: 'Order Mgmt', icon: 'swap-vertical-outline' as const, screen: 'OrderManagement', color: C.warning },
-  { label: 'AI Lead Gen', icon: 'sparkles-outline' as const, screen: 'AiLeadGen', color: C.purple },
-  { label: 'Ads Pricing', icon: 'pricetag-outline' as const, screen: 'AdsPricing', color: C.danger },
+  { label: 'AI Lead Gen', icon: 'sparkles' as const, screen: 'AiLeadGen', color: C.purple },
+  { label: 'Ads Pricing', icon: 'pricetag' as const, screen: 'AdsPricing', color: C.danger },
 ];
 
 /* ── Component ─────────────────────────────────────────────────────────────── */

@@ -165,11 +165,15 @@ export default function CheckoutScreen({ route, navigation }: any) {
               })),
               payment_method: paymentMethod,
               sub_total: subtotal,
+              shipping_charges: shippingCost,
+              giftwrap_charges: 0,
+              transaction_charges: 0,
+              total_discount: 0,
               length: 10,
               breadth: 10,
               height: 10,
               weight: 0.5,
-            });
+            } as any);
 
             if (shipment?.awb_code) {
               await firestore().collection('orders').doc(orderId).update({
